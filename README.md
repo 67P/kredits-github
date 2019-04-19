@@ -18,4 +18,4 @@ npm start
 
 ## License
 
-[ISC](LICENSE) © 2019 Kosmos Contributors <mail@kosmos.org>
+[ISC](LICENSE) © 2019 Kosmos Contributors

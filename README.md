@@ -2,6 +2,10 @@
 
 Tools for using Kredits with GitHub.
 
+## Features
+
+* Check open pull requests for kredits labels
+
 ## Setup
 
 ```sh

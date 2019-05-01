@@ -12,7 +12,7 @@ if (!process.env.WALLET_PRIVATE_KEY) {
   console.log('Wallet could not be loaded. Please provide a WALLET_PRIVATE_KEY');
   process.exit(1);
 }
-const signer = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
+const wallet = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
 
 // TODO: maybe move into kredits-contracts
 Kredits.for = function (connectionOptions, kreditsOptions) {
@@ -51,7 +51,7 @@ function getConfig (context) {
 
 function getKredits (config) {
   return Kredits.for(
-    { rpcUrl: config.ethRpcUrl, network: ethNetwork, signer: signer },
+    { rpcUrl: config.ethRpcUrl, network: config.ethNetwork, wallet: wallet },
     {
       addresses: { Kernel: config.address },
       apm: config.apmDomain,
@@ -61,7 +61,7 @@ function getKredits (config) {
 }
 
 module.exports = app => {
-  signer.getAddress().then(address => {
+  wallet.getAddress().then(address => {
     app.log(`Bot address: ${address}`);
   });
 

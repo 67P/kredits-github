@@ -1,11 +1,69 @@
-// Checks API example
-// See: https://developer.github.com/v3/checks/ to learn more
+const RSVP = require('rsvp');
+const Kredits = require('kredits-contracts');
+const ethers = require('ethers');
 
-/**
- * This is the main entrypoint to your Probot app
- * @param {import('probot').Application} app
- */
+const PullRequest = require('./lib/pull-request');
+const claimPullRequest = require('./lib/claim-pull-request');
+const addContributor = require('./lib/add-contributor');
+const handlePullRequestChange = require('./lib/handle-pull-request-change');
+
+const defaultConfig = require('./config/defaults');
+if (!process.env.WALLET_PRIVATE_KEY) {
+  console.log('Wallet could not be loaded. Please provide a WALLET_PRIVATE_KEY');
+  process.exit(1);
+}
+const signer = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
+
+Kredits.for = function (connectionOptions, kreditsOptions) {
+  const { network, rpcUrl, wallet } = connectionOptions;
+  let ethProvider, signer;
+  if (rpcUrl || network === 'local') {
+    ethProvider = new ethers.providers.JsonRpcProvider(rpcUrl);
+  } else {
+    ethProvider = new ethers.getDefaultProvider(network);
+  }
+  if (wallet) {
+    signer = wallet.connect(ethProvider);
+  } else if (ethProvider.getSigner) {
+    signer = ethProvider.getSigner();
+  }
+  return new Kredits(ethProvider, signer, kreditsOptions);
+}
+
+
+function getConfig (context) {
+  let repo = context.repo();
+  return context.github.repos.getContents({
+    owner: repo.owner,
+    repo: repo.repo,
+    path: '.github/kredits.json'
+  })
+  .then(configFile => {
+    let content = Buffer.from(configFile.data.content, 'base64').toString();
+    let config = JSON.parse(content);
+    return Object.assign({}, defaultConfig, config);
+  })
+  .catch(e => {
+    console.log('Error loading config', e.message);
+    return defaultConfig;
+  });
+}
+
+function getKredits (config) {
+  return Kredits.for(
+    { rpcUrl: 'http://localhost:7545', signer: signer },
+    {
+      addresses: { Kernel: config.address },
+      apm: config.apmDomain,
+      ipfsConfig: config.ipfsConfig
+    }
+  ).init();
+}
+
 module.exports = app => {
+  signer.getAddress().then(address => {
+    app.log(`Bot address: ${address}`);
+  });
 
   app.on([
     'pull_request.opened',
@@ -15,41 +73,113 @@ module.exports = app => {
     'pull_request.synchronize'
   ], handlePullRequestChange)
 
-  async function handlePullRequestChange (context) {
-    const { action, pull_request: pr, repository: repo } = context.payload
-    const hasKreditsLabel = !!pr.labels.find(l => l.name.match(/^kredits-\d$/))
+  app.on(['issue_comment.created'], async (context) => {
+    if (context.isBot) { return; }
+    // check if kredits bot is mentioned
+    const commandMatch = context.payload.comment.body.match(/^\/([\w]+)\b *(.*)?$/m);
+    if (!commandMatch || commandMatch[1].toLowerCase() != 'kredits') {
+      return;
+    }
+    const command = commandMatch[2];
 
-    try { await setStatus(hasKreditsLabel, context) }
-    catch (e) { console.log(e) }
-  }
+    const config = await getConfig(context);
+    // check if a DAO is configured
+    if (!config.address) {
+      console.log('No DAO address found in config');
+      return;
+    }
+    const kredits = await getKredits(config);
+    const pullRequest = await context.github.pulls.get({
+      owner: context.payload.repository.owner.login,
+      repo: context.payload.repository.name,
+      pull_number: context.payload.issue.number
+    });
+    const pull = new PullRequest({
+      data: pullRequest.data,
+      repository: context.payload.repository,
+      config: config
+    });
 
-  function setStatus (hasKreditsLabel, context) {
-    const pullRequest = context.payload.pull_request
+    const accountMatch = command.match(/0x[a-fA-F0-9]{40}/g)
+    if (command.split(' ')[0] === 'claim') {
+      claimPullRequest({ kredits, config, pull, context })
+    } else if (accountMatch) {
+      const account = accountMatch[0];
+      const commentAuthor = await context.github.users.getByUsername({ username: context.payload.sender.login }); // get full profile
+      const contributorAttr = {
+        name: commentAuthor.data.name,
+        github_username: commentAuthor.data.login,
+        github_uid: commentAuthor.data.id,
+        url: commentAuthor.data.blog || commentAuthor.data.html_url,
+        kind: 'person',
+        account: account
+      };
+      addContributor(kredits, contributorAttr).then(contributor => {
+        context.github.issues.createComment(context.issue({
+          body: `Great @${commentAuthor.data.login}, your profile is all set.`
+        }));
 
-    const checkOptions = {
-      name: "Kredits",
-      head_branch: '', // workaround for https://github.com/octokit/rest.js/issues/874
-      head_sha: pullRequest.head.sha,
-      status: 'in_progress',
-      started_at: (new Date()).toISOString(),
-      output: {
-        title: 'Kredits label missing',
-        summary: 'No kredits label assigned. Please add one for this check to pass.',
-        text: 'This project rewards contributions with Kosmos Kredits. In order to determine the amount, the bot looks for a label of `kredits-1` (small contribution), `kredits-2` (medium-size contribution), or `kredits-3` (large contribution).'
+        // check if we now have all profiles, and if so send the kredits
+        let contributorPromises = {};
+        pull.recipients.forEach(username => {
+          contributorPromises[username] = kredits.Contributor.findByAccount({ username, site: 'github.com' });
+        });
+        RSVP.hash(contributorPromises).then(contributors => {
+          const missingContributors = Object.keys(contributors).filter(c => contributors[c] === undefined);
+          if (missingContributors.length === 0) {
+            claimPullRequest({ kredits, config, pull, context })
+          }
+        });
+      });
+    }
+  });
+
+
+  app.on('pull_request.closed', async context => {
+    if (!context.payload.pull_request.merged) {
+      return true;
+    }
+    const config = await getConfig(context);
+    if (!config.address) {
+      console.log('No DAO address found in config');
+      return;
+    }
+    const kredits = await getKredits(config);
+
+    const pull = new PullRequest({
+      data: context.payload.pull_request,
+      repository: context.payload.repository,
+      config: config,
+    });
+    claimPullRequest({ kredits, config, pull, context })
+      .then(console.log)
+      .catch(console.log);
+
+    return;
+    const contribution = pull.contributionAttributes();
+
+    let contributorPromises = {};
+    pull.recipients.forEach(username => {
+      contributorPromises[username] = kredits.Contributor.findByAccount({ username, site: 'github.com' });
+    });
+
+    RSVP.hash(contributorPromises).then(contributors => {
+      const missingContributors = Object.keys(contributors).filter(c => contributors[c] === undefined);
+      if (missingContributors.length > 0) {
+        context.github.issues.createComment(context.issue({
+          body: `I tried to send you some Kredits but I am missing the contributor details of ${missingContributors.join(', ')}.`
+        }));
+      } else {
+        const addPromises = Object.values(contributors).map(c => addContributionFor(kredits, c, contribution));
+        Promise.all(addPromises).then(transactions => {
+          context.github.issues.createComment(context.issue({
+            body: `Thanks for your contribution! ${pull.amount} are on the way to ${Object.keys(contributors).join(', ')}.`
+          }));
+          if (config.claimedLabel) {
+            context.github.addLabels(context.issue({ labels: config.claimedLabel }));
+          }
+        });
       }
-    }
-
-    if (hasKreditsLabel) {
-      checkOptions.status = 'completed'
-      checkOptions.conclusion = 'success'
-      checkOptions.completed_at = new Date()
-      checkOptions.output.title = 'Kredits label assigned'
-      checkOptions.output.summary = ''
-    }
-
-    return context.github.checks.create(context.repo(checkOptions))
-  }
-
-  // For more information on building apps:
-  // https://probot.github.io/docs/
-}
+    });
+  });
+};

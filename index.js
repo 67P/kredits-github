@@ -14,6 +14,7 @@ if (!process.env.WALLET_PRIVATE_KEY) {
 }
 const signer = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
 
+// TODO: maybe move into kredits-contracts
 Kredits.for = function (connectionOptions, kreditsOptions) {
   const { network, rpcUrl, wallet } = connectionOptions;
   let ethProvider, signer;
@@ -29,7 +30,6 @@ Kredits.for = function (connectionOptions, kreditsOptions) {
   }
   return new Kredits(ethProvider, signer, kreditsOptions);
 }
-
 
 function getConfig (context) {
   let repo = context.repo();

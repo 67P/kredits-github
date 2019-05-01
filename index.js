@@ -51,7 +51,7 @@ function getConfig (context) {
 
 function getKredits (config) {
   return Kredits.for(
-    { rpcUrl: 'http://localhost:7545', signer: signer },
+    { rpcUrl: config.ethRpcUrl, network: ethNetwork, signer: signer },
     {
       addresses: { Kernel: config.address },
       apm: config.apmDomain,

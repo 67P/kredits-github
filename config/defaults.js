@@ -1,4 +1,7 @@
 module.exports = {
+  address: process.env.DAO_ADDRESS,
+  ethRpcUrl: process.env.ETH_RPC_URL,
+  network: process.env.ETH_NETWORK || 'rinkeby',
   coinName: 'Kredits',
   coinSymbol: 'K',
   claimedLabel: 'kredits-claimed',

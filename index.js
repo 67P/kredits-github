@@ -102,7 +102,7 @@ module.exports = app => {
 
     const accountMatch = command.match(/0x[a-fA-F0-9]{40}/g)
     if (command.split(' ')[0] === 'claim') {
-      claimPullRequest({ kredits, config, pull, context })
+      claimPullRequest({ kredits, config, pull, context });
     } else if (accountMatch) {
       const account = accountMatch[0];
       const commentAuthor = await context.github.users.getByUsername({ username: context.payload.sender.login }); // get full profile
@@ -127,7 +127,7 @@ module.exports = app => {
         RSVP.hash(contributorPromises).then(contributors => {
           const missingContributors = Object.keys(contributors).filter(c => contributors[c] === undefined);
           if (missingContributors.length === 0) {
-            claimPullRequest({ kredits, config, pull, context })
+            claimPullRequest({ kredits, config, pull, context });
           }
         });
       });
@@ -151,35 +151,6 @@ module.exports = app => {
       repository: context.payload.repository,
       config: config,
     });
-    claimPullRequest({ kredits, config, pull, context })
-      .then(console.log)
-      .catch(console.log);
-
-    return;
-    const contribution = pull.contributionAttributes();
-
-    let contributorPromises = {};
-    pull.recipients.forEach(username => {
-      contributorPromises[username] = kredits.Contributor.findByAccount({ username, site: 'github.com' });
-    });
-
-    RSVP.hash(contributorPromises).then(contributors => {
-      const missingContributors = Object.keys(contributors).filter(c => contributors[c] === undefined);
-      if (missingContributors.length > 0) {
-        context.github.issues.createComment(context.issue({
-          body: `I tried to send you some Kredits but I am missing the contributor details of ${missingContributors.join(', ')}.`
-        }));
-      } else {
-        const addPromises = Object.values(contributors).map(c => addContributionFor(kredits, c, contribution));
-        Promise.all(addPromises).then(transactions => {
-          context.github.issues.createComment(context.issue({
-            body: `Thanks for your contribution! ${pull.amount} are on the way to ${Object.keys(contributors).join(', ')}.`
-          }));
-          if (config.claimedLabel) {
-            context.github.addLabels(context.issue({ labels: config.claimedLabel }));
-          }
-        });
-      }
-    });
+    claimPullRequest({ kredits, config, pull, context });
   });
 };

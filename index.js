@@ -8,11 +8,14 @@ const addContributor = require('./lib/add-contributor');
 const handlePullRequestChange = require('./lib/handle-pull-request-change');
 
 const defaultConfig = require('./config/defaults');
-if (!process.env.WALLET_PRIVATE_KEY) {
-  console.log('Wallet could not be loaded. Please provide a WALLET_PRIVATE_KEY');
-  process.exit(1);
+
+let wallet;
+if (process.env.WALLET_PRIVATE_KEY) {
+  wallet = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
+} else {
+  console.log('No wallet could not be loaded. Running as a read only bot to check labels.');
 }
-const wallet = new ethers.Wallet(process.env.WALLET_PRIVATE_KEY);
+
 
 // TODO: maybe move into kredits-contracts
 Kredits.for = function (connectionOptions, kreditsOptions) {
@@ -61,9 +64,11 @@ function getKredits (config) {
 }
 
 module.exports = app => {
-  wallet.getAddress().then(address => {
-    app.log(`Bot address: ${address}`);
-  });
+  if (wallet) {
+    wallet.getAddress().then(address => {
+      app.log(`Bot address: ${address}`);
+    });
+  }
 
   app.on([
     'pull_request.opened',
@@ -74,6 +79,7 @@ module.exports = app => {
   ], handlePullRequestChange)
 
   app.on(['issue_comment.created'], async (context) => {
+    if (!wallet) { app.log('No wallet configured'); return; }
     if (context.isBot) { return; }
     // check if kredits bot is mentioned
     const commandMatch = context.payload.comment.body.match(/^\/([\w]+)\b *(.*)?$/m);
@@ -136,6 +142,7 @@ module.exports = app => {
 
 
   app.on('pull_request.closed', async context => {
+    if (!wallet) { app.log('No wallet configured'); return; }
     if (!context.payload.pull_request.merged) {
       return true;
     }

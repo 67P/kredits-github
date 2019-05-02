@@ -108,7 +108,15 @@ module.exports = app => {
 
     const accountMatch = command.match(/0x[a-fA-F0-9]{40}/g)
     if (command.split(' ')[0] === 'claim') {
-      claimPullRequest({ kredits, config, pull, context });
+      claimPullRequest({ kredits, config, pull, context })
+      .then(created => {
+        if (created) {
+          app.log.info('Contribution created', context.payload.pull_request.url);
+        }
+      })
+      .catch(e => {
+        app.log.error(e);
+      });
     } else if (accountMatch) {
       const account = accountMatch[0];
       const commentAuthor = await context.github.users.getByUsername({ username: context.payload.sender.login }); // get full profile
@@ -142,13 +150,14 @@ module.exports = app => {
 
 
   app.on('pull_request.closed', async context => {
-    if (!wallet) { app.log('No wallet configured'); return; }
+    if (!wallet) { app.log.debug('No wallet configured'); return; }
     if (!context.payload.pull_request.merged) {
+      app.log.debug('Pull request not merged ', context.payload.pull_request.url);
       return true;
     }
     const config = await getConfig(context);
     if (!config.address) {
-      console.log('No DAO address found in config');
+      app.log.info('No DAO address found in config', context.payload.repository.full_name);
       return;
     }
     const kredits = await getKredits(config);
@@ -158,6 +167,15 @@ module.exports = app => {
       repository: context.payload.repository,
       config: config,
     });
-    claimPullRequest({ kredits, config, pull, context });
+    app.log.info('Claiming PR', context.payload.pull_request.url);
+    claimPullRequest({ kredits, config, pull, context })
+      .then(created => {
+        if (created) {
+          app.log.info('Contribution created', context.payload.pull_request.url);
+        }
+      })
+      .catch(e => {
+        app.log.error(e);
+      });
   });
 };

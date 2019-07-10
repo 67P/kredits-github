@@ -16,24 +16,6 @@ if (process.env.WALLET_PRIVATE_KEY) {
   console.log('No wallet could not be loaded. Running as a read only bot to check labels.');
 }
 
-
-// TODO: maybe move into kredits-contracts
-Kredits.for = function (connectionOptions, kreditsOptions) {
-  const { network, rpcUrl, wallet } = connectionOptions;
-  let ethProvider, signer;
-  if (rpcUrl || network === 'local') {
-    ethProvider = new ethers.providers.JsonRpcProvider(rpcUrl);
-  } else {
-    ethProvider = new ethers.getDefaultProvider(network);
-  }
-  if (wallet) {
-    signer = wallet.connect(ethProvider);
-  } else if (ethProvider.getSigner) {
-    signer = ethProvider.getSigner();
-  }
-  return new Kredits(ethProvider, signer, kreditsOptions);
-}
-
 function getConfig (context) {
   let repo = context.repo();
   return context.github.repos.getContents({

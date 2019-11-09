@@ -5,6 +5,8 @@ Tools for using Kredits with GitHub.
 ## Features
 
 * Check open pull requests for kredits labels
+* Create contributions from merged pull requests
+* Add contributor profiles for GitHub users
 
 ## Setup
 
